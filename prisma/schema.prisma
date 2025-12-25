@@ -11,34 +11,45 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  
 }
 
 model UrlEntry {
-  id           String    @id @default(uuid())
-  
-  // Relation to the shop/session
-  shop         String    // Maps to Session.shop
-  
-  // URL Data
-  originalUrl  String    @db.Text
-  slug         String?   @unique // If you are making a shortener
-  
-  // Status Tracking
-  status       UrlStatus @default(PENDING)
-  attempts     Int       @default(0)
-  
+  id String @id @default(uuid())
+
+  // Shop context
+  shop String
+  productId BigInt
+
+  // URL identity
+  originalUrl String @db.Text
+
+  // Optional short link support
+  slug String? @unique
+
+  // Indexing control
+  indexAction   IndexAction @default(INDEX)
+  status        UrlStatus   @default(PENDING)
+  attempts      Int         @default(0)
+
   // Timing
-  submittedAt  DateTime  @default(now())
-  lastTriedAt  DateTime?
-  processedAt  DateTime?
-  
-  // Metadata (JSON is great for "many more" flexible fields)
-  metadata     Json?
-  
-  // Relations
+  submittedAt   DateTime  @default(now())
+  lastEventAt   DateTime  @updatedAt // webhook activity
+  lastTriedAt   DateTime?
+  lastIndexedAt DateTime?
+  processedAt   DateTime?
+
+  // Optional optimization
+  // contentHash    String?  // detect meaningful changes
+
+  // Flexible metadata
+  metadata Json?
+
+  // Constraints & indexes
+  @@unique([shop, originalUrl])
+  @@unique([shop, productId])
   @@index([shop])
   @@index([status])
+  @@index([indexAction])
 }
 
 enum UrlStatus {
@@ -48,22 +59,28 @@ enum UrlStatus {
   FAILED
 }
 
+enum IndexAction {
+  INDEX // submit/update
+  DELETE // remove from index
+  IGNORE // do nothing
+}
+
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
