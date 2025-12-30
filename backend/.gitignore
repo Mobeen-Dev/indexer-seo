@@ -1,0 +1,5 @@
+.venv/
+venv/
+
+credentials.json
+*.json
