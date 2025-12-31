@@ -3,33 +3,29 @@ from google.auth.transport.requests import AuthorizedSession
 import json
 
 # Configuration
-target_url = "https://domain.pk/products/crane-sli-safe-load-indicator"
+target_url = "https://weldingsolution.pk/contact-us/"
 JSON_KEY_FILE = "credentials.json"
 
 # Paste your full JSON content inside these triple quotes
-JSON_KEY_STRING = """
-{
+JSON_KEY = {
   "type": "service_account",
   "project_id": "your-project-id",
   "private_key_id": "your-private-key-id",
-  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
-  "client_email": "your-service-account-email@your-project.iam.gserviceaccount.com",
-  "client_id": "your-client-id",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...YOUR_KEY_HERE...\n-----END PRIVATE KEY-----\n",
+  "client_email": "your-email@your-project.iam.gserviceaccount.com",
+  "client_id": "123456789",
   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
   "token_uri": "https://oauth2.googleapis.com/token",
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/your-email"
 }
-"""
+
 
 # Note: The new library expects a LIST of scopes, not a string
 SCOPES = ["https://www.googleapis.com/auth/indexing"]
 ENDPOINT = "https://indexing.googleapis.com/v3/urlNotifications:publish"
 
 try:
-    # 1. Parse the JSON string into a Python Dictionary
-    key_dict = json.loads(JSON_KEY_STRING)
-
     # 1. Load and Authorize Credentials
     # We use from_service_account_file instead of from_json_keyfile_name
     # credentials = service_account.Credentials.from_service_account_file(
@@ -38,7 +34,7 @@ try:
     # )
 
     credentials = service_account.Credentials.from_service_account_info(
-        key_dict, scopes=SCOPES
+        JSON_KEY, scopes=SCOPES
     )
 
     # 2. Build the Authorized Session
