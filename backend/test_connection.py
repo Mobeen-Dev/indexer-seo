@@ -4,9 +4,9 @@ import json
 
 # Configuration
 target_url = "https://weldingsolution.pk/contact-us/"
-JSON_KEY_FILE = "credentials.json"
+# JSON_KEY_FILE = "credentials.json"
 
-# Paste your full JSON content inside these triple quotes
+# Below method is not recommended but for production we have to rely on this technique
 JSON_KEY = {
   "type": "service_account",
   "project_id": "your-project-id",
@@ -21,13 +21,13 @@ JSON_KEY = {
 }
 
 
-# Note: The new library expects a LIST of scopes, not a string
+# Note: The library expects a LIST of scopes
 SCOPES = ["https://www.googleapis.com/auth/indexing"]
 ENDPOINT = "https://indexing.googleapis.com/v3/urlNotifications:publish"
 
 try:
-    # 1. Load and Authorize Credentials
-    # We use from_service_account_file instead of from_json_keyfile_name
+    # 1. Load and Authorize Credentials from File JSON_KEY_FILE = file_path_for_creds_downloaded_from_the_developer_console_google
+    #
     # credentials = service_account.Credentials.from_service_account_file(
     #     JSON_KEY_FILE,
     #     scopes=SCOPES
@@ -38,7 +38,6 @@ try:
     )
 
     # 2. Build the Authorized Session
-    # This replaces credentials.authorize(httplib2.Http()).
     # It acts exactly like a standard 'requests' session but handles auth automatically.
     http = AuthorizedSession(credentials)
 
@@ -47,7 +46,6 @@ try:
     content = {"url": target_url, "type": "URL_UPDATED"}
 
     # 4. Make the Request
-    # Note: We use .post() with the 'json' parameter.
     # This automatically handles json.dumps and setting Content-Type headers.
     response = http.post(ENDPOINT, json=content)
 
