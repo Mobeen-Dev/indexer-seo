@@ -58,119 +58,144 @@ export const loader = async ({ request }) => {
     }
   }
 
-  return { bing_key: bingKey, isGoogleConfig: validGoogleConfig };
+  let currentSettings = {
+    bingLimit: 10000,
+    retryLimit: 3,
+    googleLimit: 200,
+    contentTypePreferences: [],
+  };
+
+  if (auth?.settings) {
+    try {
+      // If settings is a string, parse it
+      currentSettings =
+        typeof auth.settings === "string"
+          ? JSON.parse(auth.settings)
+          : auth.settings;
+    } catch (err) {
+      console.error("Failed to parse settings:", err);
+    }
+  }
+
+  return {
+    bing_key: bingKey,
+    isGoogleConfig: validGoogleConfig,
+    shopSettings: currentSettings,
+  };
 };
 
 export async function action({ request }) {
   const { session } = await authenticate.admin(request);
-
   const formData = await request.formData();
 
-  const selection = formData.get("type");
-  console.log("Selection of form type submission is :");
-  console.log(selection);
+  // Prepare update object for atomic operation
+  const updateData = {};
+  let hasChanges = false;
 
-  switch (selection) {
-    case "Bing":
-      const bingAction = formData.get("action");
-      console.log("Action for that is ");
-      console.log(bingAction);
-      if (bingAction == "update") {
-        const key = formData.get("bing-secret");
+  // ==========================================
+  // Handle Bing API Key
+  // ==========================================
+  const bingAction = formData.get("bingAction");
+  const currentSettings = formData.get("shopSettings");
 
-        // (server-side validation recommended too)
-        if (!/^[a-zA-Z0-9]{32}$/.test(key)) {
-          return { error: "Invalid key format" };
-        }
+  console.log("Bing Action:", bingAction);
 
-        // console.log("Key received from client:", key);
-        const encryptedKey = encrypt(key);
+  if (bingAction === "update") {
+    const key = formData.get("bing-secret");
 
-        // Fetch the record for the shop
-        const auth = await prisma.auth.upsert({
-          where: { shop: session.shop },
-          update: {
-            bingApiKey: encryptedKey,
-          },
-          create: {
-            shop: session.shop,
-            bingApiKey: encryptedKey,
-            settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
-          },
-        });
-      } else if (bingAction == "delete") {
-        await prisma.auth.upsert({
-          where: { shop: session.shop },
-          update: {
-            bingApiKey: "",
-          },
-          create: {
-            shop: session.shop,
-            bingApiKey: "",
-            settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
-          },
-        });
-      }
+    // Server-side validation
+    if (!/^[a-zA-Z0-9]{32}$/.test(key)) {
+      return { error: "Invalid Bing key format" };
+    }
 
-      break;
-
-    case "Google":
-      const googleAction = formData.get("action");
-      console.log("Action for that is ");
-      console.log(googleAction);
-      if (googleAction === "update") {
-        try {
-          // get google JSON upload from form
-          const googleConfig = formData.get("data");
-          // 2. Prepare for storage (Stringify + Encrypt)
-          // It is safer to re-stringify the parsed object to clean any extra whitespace
-          const encryptedConfig = encrypt(googleConfig);
-          // 3. Upsert into Prisma
-          const googleAuth = await prisma.auth.upsert({
-            where: { shop: session.shop },
-            update: {
-              googleConfig: encryptedConfig, // Ensure this column exists in your schema
-            },
-            create: {
-              shop: session.shop,
-              googleConfig: encryptedConfig,
-              settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
-            },
-          });
-
-          console.log("Google Config saved successfully for:", session.shop);
-        } catch (err) {
-          console.error(err);
-          return {
-            error: "Invalid JSON format. Please paste the entire file content.",
-          };
-        }
-      } else if (googleAction === "delete") {
-        await prisma.auth.upsert({
-          where: { shop: session.shop },
-          update: {
-            googleConfig: "", // Ensure this column exists in your schema
-          },
-          create: {
-            shop: session.shop,
-            googleConfig: "",
-            settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
-          },
-        });
-      }
-      break;
-    case "submission-settings":
-      // handle preferences
-      break;
-
-    default:
-      // throw new Error("Unknown section");
-      console.log("selection");
-      console.log(selection);
-      return;
+    const encryptedKey = encrypt(key);
+    updateData.bingApiKey = encryptedKey;
+    hasChanges = true;
+    console.log("Bing API Key will be updated");
+  } else if (bingAction === "delete") {
+    updateData.bingApiKey = "";
+    hasChanges = true;
+    console.log("Bing API Key will be deleted");
   }
 
-  return { success: true };
+  // ==========================================
+  // Handle Google Config
+  // ==========================================
+  const googleAction = formData.get("googleAction");
+  console.log("Google Action:", googleAction);
+
+  if (googleAction === "update") {
+    try {
+      const googleConfig = formData.get("data");
+
+      if (!googleConfig) {
+        return { error: "No Google configuration data provided" };
+      }
+
+      // Encrypt the JSON string
+      const encryptedConfig = encrypt(googleConfig);
+      updateData.googleConfig = encryptedConfig;
+      hasChanges = true;
+      console.log("Google Config will be updated for:", session.shop);
+    } catch (err) {
+      console.error("Error processing Google config:", err);
+      return {
+        error: "Invalid JSON format. Please paste the entire file content.",
+      };
+    }
+  } else if (googleAction === "delete") {
+    updateData.googleConfig = "";
+    hasChanges = true;
+    console.log("Google Config will be deleted");
+  }
+
+  // ==========================================
+  // Handle Submission Settings (Content Types)
+  // ==========================================
+  const shopSettingsJSON = formData.get("shopSettingsJSON");
+  console.log("Shop Settings JSON received:", shopSettingsJSON);
+
+  if (shopSettingsJSON) {
+    try {
+      // **FIX: Parse the JSON string**
+      const parsedSettings = JSON.parse(shopSettingsJSON);
+      updateData.settings = parsedSettings;
+      hasChanges = true;
+      console.log("Settings will be updated:", parsedSettings);
+    } catch (err) {
+      console.error("Error parsing shop settings:", err);
+      return { error: "Invalid settings format" };
+    }
+  }
+
+  // ==========================================
+  // Perform Single Atomic Update
+  // ==========================================
+  // Perform Single Atomic Update
+  if (hasChanges) {
+    console.log("Performing database update with:", updateData);
+
+    await prisma.auth.upsert({
+      where: { shop: session.shop },
+      update: updateData,
+      create: {
+        shop: session.shop,
+        ...updateData,
+        settings: updateData.settings || {
+          bingLimit: 10000,
+          retryLimit: 3,
+          googleLimit: 200,
+          contentTypePreferences: [],
+        },
+      },
+    });
+
+    console.log("Successfully updated settings for shop:", session.shop);
+    return { success: true };
+  } else {
+    console.log("No changes detected, skipping database update");
+    return { success: true, message: "No changes to save" };
+  }
 }
 
 /**
@@ -223,7 +248,7 @@ function validateServiceAccountJson(jsonInput) {
 }
 
 export default function SettingsPage() {
-  const { bing_key, isGoogleConfig } = useLoaderData();
+  const { bing_key, isGoogleConfig, shopSettings } = useLoaderData();
 
   // const result = useActionData();
   const fetcher = useFetcher();
@@ -236,6 +261,8 @@ export default function SettingsPage() {
   const [dropZoneError, setdropZoneError] = useState(null);
   const [dropZoneDisabled, setdropZoneDisabled] = useState(isGoogleConfig);
   const [jsonData, setJsonData] = useState(null);
+
+  const [settings, setSettings] = useState(shopSettings);
 
   const [dirtyForms, setDirtyForms] = useState({
     form1: false,
@@ -285,99 +312,82 @@ export default function SettingsPage() {
   //////////// <----- FUNCTIONS AREA -----> ////////////
   //////////////////////////////////////////////////////
 
-  function handleBingSubmit(event) {
+  function handleFormSubmit(event) {
     event.preventDefault();
-    if (!dirtyForms.form1) {
-      console.log("BING NO CHANGES");
-      return; // nothing changed → stop here
-    }
 
     const formData = new FormData(event.target);
     const formEntries = Object.fromEntries(formData);
 
-    console.log("Form-data-whole", formEntries);
+    console.log("Form-data-full", formEntries);
+
     const key = formData.get("bing-secret");
     console.log("bingApiKey");
     console.log(key);
 
-    // Ignore
-    if (key === null) return;
+    // Bing Changed
+    if (dirtyForms.form1) {
+      if (key == "") {
+        // User wants to delete the api key
+        formData.append("bingAction", "delete");
 
-    if (key == "") {
-      // User wants to delete the api key
-      formData.append("type", "Bing");
-      formData.append("action", "delete");
-
-      console.log("BING delete request gone");
-
-      fetcher.submit(formData, { method: "POST" });
+        console.log("bing request delete");
+      } else {
+        // Validate Key
+        const isValid = /^[a-zA-Z0-9]{32}$/.test(key);
+        if (!isValid) {
+          setBingKeyError("Key must be 32 alphanumeric characters");
+        } else {
+          formData.append("bingAction", "update");
+          console.log("bing request update");
+        }
+      }
       setDirtyForms((f) => ({ ...f, form1: false }));
-
-      return;
+    } else {
+      console.log("BING NO CHANGES");
     }
 
-    const isValid = /^[a-zA-Z0-9]{32}$/.test(key);
-    if (!isValid) {
-      setBingKeyError("Key must be 32 alphanumeric characters");
-      return;
-    }
+    if (dirtyForms.form2) {
+      if (jsonData == null) {
+        // Change but not uploaded = Delete
+        formData.append("googleAction", "delete");
+        console.log("google request delete");
+      } else {
+        console.log("google request update");
 
-    formData.append("type", "Bing");
-    formData.append("action", "update");
-    console.log("BING update request gone");
+        formData.append("googleAction", "update");
+        formData.append("data", JSON.stringify(jsonData));
+      }
 
-    fetcher.submit(formData, { method: "POST" });
-    setDirtyForms((f) => ({ ...f, form1: false }));
-  }
-
-  function handleGoogleSubmit(event) {
-    event.preventDefault();
-    if (!dirtyForms.form2) {
-      console.log("GOOGLE NO DATA CHANGES");
-      return; // nothing changed → stop here
-    }
-
-    let formData = new FormData(event.target);
-    formData.append("type", "Google");
-
-    if (jsonData == null) {
-      // Change but not uploaded = Delete
-      formData.append("action", "delete");
-      fetcher.submit(formData, { method: "POST" });
       setDirtyForms((f) => ({ ...f, form2: false }));
-      return;
+    } else {
+      console.log("GOOGLE NO DATA CHANGES");
     }
 
-    formData.append("action", "update");
-    formData.append("data", JSON.stringify(jsonData));
-
-    fetcher.submit(formData, { method: "POST" });
-    setDirtyForms((f) => ({ ...f, form2: false }));
-  }
-
-  function baseSubmit(event) {
-    event.preventDefault();
-
-    const formData = new FormData(event.target);
-    const formEntries = Object.fromEntries(formData);
-
-    console.log("Form data", formEntries);
-    // do whatever you need here...
-
-    // content-type value like: "products,collections,blog_posts,pages"
     const contentTypeRaw = formEntries["content-type"];
 
-    // guard: if missing, stop
-    if (!contentTypeRaw) return;
+    if (dirtyForms.form3) {
+      // turn into list array
+      const indexableList = contentTypeRaw
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean); // removes empty entries
 
-    // turn into list array
-    const indexableList = contentTypeRaw
-      .split(",")
-      .map((v) => v.trim())
-      .filter(Boolean); // removes empty entries
-    console.log("indexable list:", indexableList);
+      console.log(shopSettings);
+      formData.append(
+        "shopSettingsJSON",
+        JSON.stringify({
+          ...shopSettings,
+          contentTypePreferences: indexableList,
+        }),
+      );
+
+      console.log("indexable list:", indexableList);
+    } else {
+      console.log("SETTINGS NO DATA CHANGES");
+    }
+
+    fetcher.submit(formData, { method: "POST" });
   }
-  //  {result?.error && <s-banner tone="critical">{result.error}</s-banner>}
 
   function handleRejected(event) {
     setdropZoneError(
@@ -431,44 +441,89 @@ export default function SettingsPage() {
     reader.readAsText(file);
   }
 
+  function handleFormReset(event) {
+    event.preventDefault();
+
+    // Bing Changed
+    if (dirtyForms.form1) {
+      setDirtyForms((f) => ({ ...f, form1: false }));
+    } else {
+      console.log("BING NO CHANGES REVERT");
+    }
+
+    if (dirtyForms.form2) {
+      setdropZoneError(null);
+      setdropZoneDisabled(isGoogleConfig); // revive Initial State UI
+      setDirtyForms((f) => ({ ...f, form2: false }));
+    } else {
+      console.log("GOOGLE NO DATA CHANGES REVERT");
+    }
+
+    if (dirtyForms.form3) {
+      setDirtyForms((f) => ({ ...f, form3: false }));
+    } else {
+      console.log("SETTINGS NO DATA CHANGES REVERT");
+    }
+  }
+
+  function toggleContentType(value, isSelected) {
+    setSettings((prev) => {
+      let updated = [...prev.contentTypePreferences];
+
+      if (isSelected) {
+        // add if missing
+        if (!updated.includes(value)) {
+          updated.push(value);
+        }
+      } else {
+        // remove if present
+        updated = updated.filter((v) => v !== value);
+      }
+
+      return { ...prev, contentTypePreferences: updated };
+    });
+  }
+
   return (
     <s-page heading="Settings" inlineSize="small">
-      <s-stack gap="base">
-        {/* Status card */}
+      <fetcher.Form
+        method="post"
+        onSubmit={handleFormSubmit}
+        onReset={handleFormReset}
+        data-save-bar
+      >
+        <s-stack gap="base">
+          {/* Status card */}
 
-        {bingStatus === "success" && (
-          <s-banner heading="Connection successful" tone="success" dismissible>
-            The server is online and Bing credentials are verified successfully.
-          </s-banner>
-        )}
+          {bingStatus === "success" && (
+            <s-banner
+              heading="Connection successful"
+              tone="success"
+              dismissible
+            >
+              The server is online and Bing credentials are verified
+              successfully.
+            </s-banner>
+          )}
 
-        {bingStatus === "pending" && (
-          <s-banner heading="Checking connection" tone="info" dismissible>
-            We are testing your credentials and server connectivity. This may
-            take a moment.
-          </s-banner>
-        )}
+          {bingStatus === "pending" && (
+            <s-banner heading="Checking connection" tone="info" dismissible>
+              We are testing your credentials and server connectivity. This may
+              take a moment.
+            </s-banner>
+          )}
 
-        {bingStatus === "failed" && (
-          <s-banner heading="Connection failed" tone="critical" dismissible>
-            We were unable to verify your Bing credentials. Please review your
-            API key and try again.
-            <s-button slot="secondary-actions" variant="secondary">
-              Try again
-            </s-button>
-          </s-banner>
-        )}
+          {bingStatus === "failed" && (
+            <s-banner heading="Connection failed" tone="critical" dismissible>
+              We were unable to verify your Bing credentials. Please review your
+              API key and try again.
+              <s-button slot="secondary-actions" variant="secondary">
+                Try again
+              </s-button>
+            </s-banner>
+          )}
 
-        {/* BING FORM */}
-        <fetcher.Form
-          method="post"
-          onSubmit={handleBingSubmit}
-          onReset={(event) => {
-            event.preventDefault();
-          }}
-          onChange={() => setDirtyForms((f) => ({ ...f, form1: true }))}
-          data-save-bar
-        >
+          {/* BING FORM */}
           <s-section heading="Credential Information">
             {/* <s-text tone="subdued">
                   Verifies whether the API credentials are valid and the server
@@ -493,21 +548,20 @@ export default function SettingsPage() {
               placeholder="Enter API Key"
             />
           </s-section>
-        </fetcher.Form>
-        {/* </form> */}
+          {/* </form> */}
 
-        <fetcher.Form
-          method="post"
-          onSubmit={handleGoogleSubmit}
-          onReset={(event) => {
-            event.preventDefault();
-            setdropZoneError(null);
-            setdropZoneDisabled(isGoogleConfig); // revive Initial State UI
-            setDirtyForms((f) => ({ ...f, form2: false }));
-          }}
-          onChange={() => setDirtyForms((f) => ({ ...f, form2: true }))}
-          data-save-bar
-        >
+          {/* <fetcher.Form
+            method="post"
+            onSubmit={handleGoogleSubmit}
+            onReset={(event) => {
+              event.preventDefault();
+              setdropZoneError(null);
+              setdropZoneDisabled(isGoogleConfig); // revive Initial State UI
+              setDirtyForms((f) => ({ ...f, form2: false }));
+            }}
+            onChange={() => setDirtyForms((f) => ({ ...f, form2: true }))}
+            data-save-bar
+          > */}
           <input
             type="hidden"
             id="google-removed-flag"
@@ -570,17 +624,16 @@ export default function SettingsPage() {
               />
             )}
           </s-section>
-        </fetcher.Form>
 
-        <fetcher.Form
-          method="post"
-          onSubmit={baseSubmit}
-          onReset={(event) => {
-            event.preventDefault();
-          }}
-          onChange={() => setDirtyForms((f) => ({ ...f, form3: true }))}
-          data-save-bar
-        >
+          {/* <fetcher.Form
+            method="post"
+            onSubmit={baseSubmit}
+            onReset={(event) => {
+              event.preventDefault();
+            }}
+            onChange={() => setDirtyForms((f) => ({ ...f, form3: true }))}
+            data-save-bar
+          > */}
           <s-stack gap="base">
             {/* === */}
             {/* Notifications */}
@@ -590,20 +643,49 @@ export default function SettingsPage() {
                 label="Prefered Content Type"
                 name="content-type"
                 multiple
+                onChange={() => setDirtyForms((f) => ({ ...f, form3: true }))}
               >
-                <s-choice value="products" selected>
+                <s-choice
+                  value="products"
+                  selected={settings.contentTypePreferences.includes(
+                    "products",
+                  )}
+                  onChange={(selected) =>
+                    toggleContentType("products", selected)
+                  }
+                >
                   Products
                 </s-choice>
 
-                <s-choice value="collections" selected>
+                <s-choice
+                  value="collections"
+                  selected={settings.contentTypePreferences.includes(
+                    "collections",
+                  )}
+                  onChange={(selected) =>
+                    toggleContentType("collections", selected)
+                  }
+                >
                   Collections
                 </s-choice>
 
-                <s-choice value="pages" selected>
+                <s-choice
+                  value="pages"
+                  selected={settings.contentTypePreferences.includes("pages")}
+                  onChange={(selected) => toggleContentType("pages", selected)}
+                >
                   Online store pages
                 </s-choice>
 
-                <s-choice value="blog_posts" selected>
+                <s-choice
+                  value="blog_posts"
+                  selected={settings.contentTypePreferences.includes(
+                    "blog_posts",
+                  )}
+                  onChange={(selected) =>
+                    toggleContentType("blog_posts", selected)
+                  }
+                >
                   Blog posts
                 </s-choice>
               </s-choice-list>
@@ -657,8 +739,8 @@ export default function SettingsPage() {
               </s-stack>
             </s-section>
           </s-stack>
-        </fetcher.Form>
-      </s-stack>
+        </s-stack>
+      </fetcher.Form>
     </s-page>
   );
 }
