@@ -14,6 +14,7 @@ export const loader = async ({ request }) => {
 
   // Default output
   let bingKey = "";
+  let validGoogleConfig = false;
 
   // Fetch the record for the shop
   const auth = await prisma.auth.findUnique({
@@ -46,7 +47,18 @@ export const loader = async ({ request }) => {
 
   // console.log(auth);
 
-  return { bing_key: bingKey, isGoogleConfig: false };
+  if (auth?.googleConfig) {
+    const raw = auth.googleConfig;
+
+    // Basic sanity check: “3 dot segments”
+    const isValidFormat = raw.split(".").length === 3;
+
+    if (isValidFormat) {
+      validGoogleConfig = true;
+    }
+  }
+
+  return { bing_key: bingKey, isGoogleConfig: validGoogleConfig };
 };
 
 export async function action({ request }) {
@@ -55,71 +67,98 @@ export async function action({ request }) {
   const formData = await request.formData();
 
   const selection = formData.get("type");
+  console.log("Selection of form type submission is :");
   console.log(selection);
 
   switch (selection) {
     case "Bing":
-      const key = formData.get("bing-secret");
+      const bingAction = formData.get("action");
+      console.log("Action for that is ");
+      console.log(bingAction);
+      if (bingAction == "update") {
+        const key = formData.get("bing-secret");
 
-      // (server-side validation recommended too)
-      if (!/^[a-zA-Z0-9]{32}$/.test(key)) {
-        return { error: "Invalid key format" };
+        // (server-side validation recommended too)
+        if (!/^[a-zA-Z0-9]{32}$/.test(key)) {
+          return { error: "Invalid key format" };
+        }
+
+        // console.log("Key received from client:", key);
+        const encryptedKey = encrypt(key);
+
+        // Fetch the record for the shop
+        const auth = await prisma.auth.upsert({
+          where: { shop: session.shop },
+          update: {
+            bingApiKey: encryptedKey,
+          },
+          create: {
+            shop: session.shop,
+            bingApiKey: encryptedKey,
+            settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
+          },
+        });
+      } else if (bingAction == "delete") {
+        await prisma.auth.upsert({
+          where: { shop: session.shop },
+          update: {
+            bingApiKey: "",
+          },
+          create: {
+            shop: session.shop,
+            bingApiKey: "",
+            settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
+          },
+        });
       }
-
-      // console.log("Key received from client:", key);
-      const encryptedKey = encrypt(key);
-
-      // Fetch the record for the shop
-      const auth = await prisma.auth.upsert({
-        where: { shop: session.shop },
-        update: {
-          bingApiKey: encryptedKey,
-        },
-        create: {
-          shop: session.shop,
-          bingApiKey: encryptedKey,
-          settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
-        },
-      });
-
-      console.log("auth");
-      console.log(auth);
 
       break;
 
     case "Google":
-      console.log("GOOGLE SELECTED");
-      try {
-        // get google JSON upload from form
-        const googleConfig = formData.get("data");
-        // 2. Prepare for storage (Stringify + Encrypt)
-        // It is safer to re-stringify the parsed object to clean any extra whitespace
-        const encryptedConfig = encrypt(googleConfig);
-        // 3. Upsert into Prisma
-        const googleAuth = await prisma.auth.upsert({
+      const googleAction = formData.get("action");
+      console.log("Action for that is ");
+      console.log(googleAction);
+      if (googleAction === "update") {
+        try {
+          // get google JSON upload from form
+          const googleConfig = formData.get("data");
+          // 2. Prepare for storage (Stringify + Encrypt)
+          // It is safer to re-stringify the parsed object to clean any extra whitespace
+          const encryptedConfig = encrypt(googleConfig);
+          // 3. Upsert into Prisma
+          const googleAuth = await prisma.auth.upsert({
+            where: { shop: session.shop },
+            update: {
+              googleConfig: encryptedConfig, // Ensure this column exists in your schema
+            },
+            create: {
+              shop: session.shop,
+              googleConfig: encryptedConfig,
+              settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
+            },
+          });
+
+          console.log("Google Config saved successfully for:", session.shop);
+        } catch (err) {
+          console.error(err);
+          return {
+            error: "Invalid JSON format. Please paste the entire file content.",
+          };
+        }
+      } else if (googleAction === "delete") {
+        await prisma.auth.upsert({
           where: { shop: session.shop },
           update: {
-            googleConfig: encryptedConfig, // Ensure this column exists in your schema
+            googleConfig: "", // Ensure this column exists in your schema
           },
           create: {
             shop: session.shop,
-            googleConfig: encryptedConfig,
+            googleConfig: "",
             settings: { bingLimit: 10000, retryLimit: 3, googleLimit: 200 },
           },
         });
-
-        console.log("Google Config saved successfully for:", session.shop);
-      } catch (err) {
-        console.log(err);
-        console.log(
-          "SORRY Google Config saved successfully for:",
-          session.shop,
-        );
-        return {
-          error: "Invalid JSON format. Please paste the entire file content.",
-        };
       }
-
+      break;
     case "submission-settings":
       // handle preferences
       break;
@@ -248,14 +287,32 @@ export default function SettingsPage() {
 
   function handleBingSubmit(event) {
     event.preventDefault();
+    if (!dirtyForms.form1) {
+      console.log("BING NO CHANGES");
+      return; // nothing changed → stop here
+    }
 
     const formData = new FormData(event.target);
     const formEntries = Object.fromEntries(formData);
 
     console.log("Form-data-whole", formEntries);
     const key = formData.get("bing-secret");
+    console.log("bingApiKey");
+    console.log(key);
 
-    if (key === null || key == "") {
+    // Ignore
+    if (key === null) return;
+
+    if (key == "") {
+      // User wants to delete the api key
+      formData.append("type", "Bing");
+      formData.append("action", "delete");
+
+      console.log("BING delete request gone");
+
+      fetcher.submit(formData, { method: "POST" });
+      setDirtyForms((f) => ({ ...f, form1: false }));
+
       return;
     }
 
@@ -266,6 +323,8 @@ export default function SettingsPage() {
     }
 
     formData.append("type", "Bing");
+    formData.append("action", "update");
+    console.log("BING update request gone");
 
     fetcher.submit(formData, { method: "POST" });
     setDirtyForms((f) => ({ ...f, form1: false }));
@@ -273,15 +332,24 @@ export default function SettingsPage() {
 
   function handleGoogleSubmit(event) {
     event.preventDefault();
-
-    if (jsonData === null) return;
+    if (!dirtyForms.form2) {
+      console.log("GOOGLE NO DATA CHANGES");
+      return; // nothing changed → stop here
+    }
 
     let formData = new FormData(event.target);
     formData.append("type", "Google");
-    formData.append("data", JSON.stringify(jsonData));
 
-    console.log("GOING TO SUBMIT FORM");
-    console.log([...formData.entries()]);
+    if (jsonData == null) {
+      // Change but not uploaded = Delete
+      formData.append("action", "delete");
+      fetcher.submit(formData, { method: "POST" });
+      setDirtyForms((f) => ({ ...f, form2: false }));
+      return;
+    }
+
+    formData.append("action", "update");
+    formData.append("data", JSON.stringify(jsonData));
 
     fetcher.submit(formData, { method: "POST" });
     setDirtyForms((f) => ({ ...f, form2: false }));
@@ -295,6 +363,19 @@ export default function SettingsPage() {
 
     console.log("Form data", formEntries);
     // do whatever you need here...
+
+    // content-type value like: "products,collections,blog_posts,pages"
+    const contentTypeRaw = formEntries["content-type"];
+
+    // guard: if missing, stop
+    if (!contentTypeRaw) return;
+
+    // turn into list array
+    const indexableList = contentTypeRaw
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean); // removes empty entries
+    console.log("indexable list:", indexableList);
   }
   //  {result?.error && <s-banner tone="critical">{result.error}</s-banner>}
 
@@ -336,6 +417,7 @@ export default function SettingsPage() {
         setdropZoneError(null);
         setdropZoneDisabled(true);
         setJsonData(_jsonData);
+        setDirtyForms((f) => ({ ...f, form2: true }));
       } catch (err) {
         console.log(err);
         setdropZoneError("The uploaded file is not valid JSON.");
@@ -404,6 +486,7 @@ export default function SettingsPage() {
               error={bingKeyError}
               value={bingKey}
               onInput={(e) => setBingKey(e.target.value)}
+              onChange={() => setDirtyForms((f) => ({ ...f, form1: true }))}
               maxLength={32}
               minLength={32}
               details="Must be at least 32 alphanumeric characters long"
@@ -419,12 +502,21 @@ export default function SettingsPage() {
           onReset={(event) => {
             event.preventDefault();
             setdropZoneError(null);
-            setdropZoneDisabled(isGoogleConfig);
+            setdropZoneDisabled(isGoogleConfig); // revive Initial State UI
+            setDirtyForms((f) => ({ ...f, form2: false }));
           }}
           onChange={() => setDirtyForms((f) => ({ ...f, form2: true }))}
           data-save-bar
         >
+          <input
+            type="hidden"
+            id="google-removed-flag"
+            name="googleRemovedFlag"
+            value="0"
+          />
+
           <s-section heading="Google Configuration File">
+            {/* Show File */}
             {dropZoneDisabled == true && (
               <s-grid gridTemplateColumns="1fr auto" alignItems="center">
                 <s-box
@@ -443,12 +535,24 @@ export default function SettingsPage() {
                   variant="tertiary"
                   tone="critical"
                   onClick={() => {
-                    // reset form visually
-                    // document.querySelector("[data-save-bar]")?.reset();
-
-                    // reset your UI state
-                    setdropZoneDisabled(isGoogleConfig);
+                    // delete your uploaded File state
+                    setdropZoneDisabled(false); // Show DropZone
                     setdropZoneError(null);
+
+                    // UI change replication
+                    const hidden = document.getElementById(
+                      "google-removed-flag",
+                    );
+                    hidden.value = hidden.value === "1" ? "0" : "1";
+
+                    // dispatch a real change **on the input**
+                    hidden.dispatchEvent(new Event("input", { bubbles: true }));
+                    hidden.dispatchEvent(
+                      new Event("change", { bubbles: true }),
+                    );
+
+                    setJsonData(null);
+                    setDirtyForms((f) => ({ ...f, form2: true }));
                   }}
                 >
                   <s-icon type="delete" />
@@ -468,13 +572,14 @@ export default function SettingsPage() {
           </s-section>
         </fetcher.Form>
 
-        <form
-          data-save-bar
+        <fetcher.Form
+          method="post"
           onSubmit={baseSubmit}
           onReset={(event) => {
-            console.log("Handle discarded changes if necessary");
+            event.preventDefault();
           }}
           onChange={() => setDirtyForms((f) => ({ ...f, form3: true }))}
+          data-save-bar
         >
           <s-stack gap="base">
             {/* === */}
@@ -486,16 +591,19 @@ export default function SettingsPage() {
                 name="content-type"
                 multiple
               >
-                <s-choice value="new-order" selected>
+                <s-choice value="products" selected>
                   Products
                 </s-choice>
-                <s-choice value="low-stock" selected>
+
+                <s-choice value="collections" selected>
                   Collections
                 </s-choice>
-                <s-choice value="customer-review" selected>
-                  Pages
+
+                <s-choice value="pages" selected>
+                  Online store pages
                 </s-choice>
-                <s-choice value="shipping-updates" selected>
+
+                <s-choice value="blog_posts" selected>
                   Blog posts
                 </s-choice>
               </s-choice-list>
@@ -549,7 +657,7 @@ export default function SettingsPage() {
               </s-stack>
             </s-section>
           </s-stack>
-        </form>
+        </fetcher.Form>
       </s-stack>
     </s-page>
   );
