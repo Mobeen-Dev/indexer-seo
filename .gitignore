@@ -14,7 +14,7 @@ database.sqlite
 .env.*
 
 seed.js
-
+app._index copy.jsx
 
 
 /extensions/*/dist

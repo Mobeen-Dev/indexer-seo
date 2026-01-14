@@ -70,6 +70,18 @@ model UrlEntry {
   @@index([shop, status, lastIndexedAt(sort: Asc), attempts(sort: Asc)])
 }
 
+model IndexTask {
+  id          BigInt    @id @default(autoincrement()) @db.BigInt
+  shop        String
+  url         String
+  isCompleted Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @db.Timestamptz
+  completedAt DateTime? @db.Timestamptz
+
+  @@unique([shop, url])
+  @@index([shop, isCompleted])
+}
+
 enum UrlStatus {
   PENDING
   PROCESSING
