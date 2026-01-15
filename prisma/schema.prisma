@@ -114,3 +114,20 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model ShopFeatureStates {
+  id   BigInt @id @default(autoincrement())
+  shop String @unique
+
+  // JSON objects for each page
+  home               Json @default("{}")
+  urlSubmission      Json @default("{}")
+  pricing            Json @default("{}")
+  settings           Json @default("{}")
+  submissionsHistory Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shop])
+}
