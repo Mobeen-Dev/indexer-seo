@@ -24,9 +24,9 @@ export const action = async ({ request }) => {
 
       await db.urlEntry.upsert({
         where: {
-          shop_originalUrl: {
+          shop_webUrl: {
             shop,
-            originalUrl: productUrl,
+            webUrl: productUrl,
           },
         },
         update: {
@@ -37,10 +37,12 @@ export const action = async ({ request }) => {
         },
         create: {
           shop,
-          originalUrl: productUrl,
+          baseId: productId,
+          webUrl: productUrl,
           indexAction: isActive ? "INDEX" : "DELETE",
           status: "PENDING",
-          productId: productId,
+          attempts: 1,
+          lastIndexedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
           // metadata: buildProductMetadata(payload),
         },
       });
@@ -49,9 +51,9 @@ export const action = async ({ request }) => {
     case "PRODUCTS_DELETE": {
       await db.urlEntry.update({
         where: {
-          shop_productId: {
+          shop_baseId: {
             shop,
-            productId: productId,
+            baseId: productId,
           },
         },
         data: {
