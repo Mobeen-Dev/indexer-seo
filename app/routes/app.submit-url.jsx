@@ -201,12 +201,12 @@ export default function AddURLsPage() {
 
   return (
     <s-page>
-      <s-button slot="primary-action" onClick={handleSubmitForIndexing}>
+      {/* <s-button slot="primary-action" onClick={handleSubmitForIndexing}>
         Submit for Indexing
       </s-button>
       <s-button slot="secondary-actions" onClick={handleValidateURLs}>
         Validate URLs
-      </s-button>
+      </s-button> */}
 
       <s-stack gap="base">
         {/* Info Banner */}

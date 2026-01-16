@@ -228,7 +228,7 @@ export default function Index() {
 
   return (
     <s-page>
-      <s-button slot="primary-action">Create puzzle</s-button>
+      {/* <s-button slot="primary-action">Create puzzle</s-button> */}
       {/* === */}
       {/* Setup Guide */}
       {/* Keep instructions brief and direct. Only ask merchants for required information. */}
