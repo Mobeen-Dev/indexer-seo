@@ -51,7 +51,7 @@ def process_batch(service, url_data):
     """
     # Google Batch Limit is generally 1000 requests per batch.
     # We use 100 to be safe and manageable.
-    BATCH_SIZE = 2
+    BATCH_SIZE = 100
 
     # Convert dictionary items to a list for chunking
     items = list(url_data.items())

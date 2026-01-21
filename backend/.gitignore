@@ -2,6 +2,6 @@
 venv/
 
 credentials.json
-*.json
+credentials.json
 .env
 *.pyc

@@ -1,0 +1,42 @@
+// On Failure
+{
+  "success": false,
+  "error": "Missing googleConfig in auth data",
+  "job_type": "URL_INDEXING_BATCH",
+  "shop": "app-development-store-grow.myshopify.com"
+}
+// On Success
+{
+  "success": true,
+  "job_type": "URL_INDEXING_BATCH",
+  "shop": "app-development-store-grow.myshopify.com",
+  "results": {
+    "total_urls": 2,
+    "successful": 1,
+    "failed": 0,
+    "quota_exceeded": 0,
+    "skipped": 0,
+    "start_time": "2026-01-21T10:15:30.123456",
+    "end_time": "2026-01-21T10:15:32.654321",
+    "results": [
+      {
+        "url": "https://example.com/product-1",
+        "action": "URL_UPDATED",
+        "status": "success",
+        "attempts": 1,
+        "error_message": null,
+        "http_status": 200,
+        "timestamp": "2026-01-21T10:15:31.000000"
+      },
+      {
+        "url": "https://example.com/deleted-product",
+        "action": "URL_DELETED",
+        "status": "success",
+        "attempts": 1,
+        "error_message": null,
+        "http_status": 200,
+        "timestamp": "2026-01-21T10:15:31.100000"
+      }
+    ]
+  }
+}

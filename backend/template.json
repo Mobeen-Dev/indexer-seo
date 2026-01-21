@@ -1,0 +1,37 @@
+{
+    "jobType": "URL_INDEXING_BATCH",
+    "version": 1,
+    "shop": "app-development-store-grow.myshopify.com",
+    "actions": {
+        "INDEX": [
+            {
+                "webUrl": "https://app-development-store-grow.myshopify.com/products/a-powerful-and-long-lasting-battery-molicel-18650-li-ion-battery-2200mah",
+                "attempts": 1
+            }
+        ],
+        "DELETE": [
+            {
+                "webUrl": "https://app-development-store-grow.myshopify.com/products/mini-mts-102-right-angle-miniature-toggle-switch-pcb-panel-mount-spdt-3pin-on-on-power-switche-6a-125v-3a-250v-mts102",
+                "attempts": 1
+            }
+        ]
+    },
+    "auth": {
+        "id": "b47c8287-909d-40cb-95e2-7b9a79d713bb",
+        "shop": "app-development-store-grow.myshopify.com",
+        "googleConfig": "",
+        "bingApiKey": "",
+        "settings": {
+            "bingLimit": 10,
+            "retryLimit": 3,
+            "googleLimit": 10,
+            "contentTypePreferences": [
+                "products",
+                "collections",
+                "blog_posts"
+            ]
+        },
+        "createdAt": "2026-01-19T12:23:59.83",
+        "updatedAt": "2026-01-19T12:23:59.83"
+    }
+}
