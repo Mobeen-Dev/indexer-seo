@@ -146,11 +146,11 @@ class GoogleIndexingProcessor:
                 self.google_config, scopes=self.SCOPES
             )
             self.service = build("indexing", "v3", credentials=credentials)
-            logger.info("✅ Successfully authenticated with Google Indexing API")
+            logger.info(" Successfully authenticated with Google Indexing API")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Authentication failed: {e}", exc_info=True)
+            logger.error(f" Authentication failed: {e}", exc_info=True)
             return False
 
     def _prepare_urls_from_actions(
@@ -186,7 +186,7 @@ class GoogleIndexingProcessor:
         total_available = len(actions.get("INDEX", [])) + len(actions.get("DELETE", []))
 
         logger.info(
-            f"📊 Prepared {len(url_mapping)} URLs from {total_available} "
+            f" Prepared {len(url_mapping)} URLs from {total_available} "
             f"(limit: {google_limit}, with buffer: {effective_limit})"
         )
 
@@ -217,7 +217,7 @@ class GoogleIndexingProcessor:
 
                     # Check for quota exceeded (429)
                     if status_code == 429:
-                        logger.warning(f"⚠️ Quota exceeded for: {url}")
+                        logger.warning(f" Quota exceeded for: {url}")
                         result = URLResult(
                             url=url,
                             action=action,
@@ -228,7 +228,7 @@ class GoogleIndexingProcessor:
                         )
                     else:
                         logger.error(
-                            f"❌ Failed [{status_code}] {url}: {error_content}"
+                            f" Failed [{status_code}] {url}: {error_content}"
                         )
                         result = URLResult(
                             url=url,
@@ -239,7 +239,7 @@ class GoogleIndexingProcessor:
                             http_status=status_code,
                         )
                 else:
-                    logger.error(f"❌ Exception for {url}: {exception}")
+                    logger.error(f" Exception for {url}: {exception}")
                     result = URLResult(
                         url=url,
                         action=action,
@@ -254,7 +254,7 @@ class GoogleIndexingProcessor:
                 response_url = response.get("urlNotificationMetadata", {}).get(
                     "url", url
                 )
-                logger.info(f"✅ Success: {response_url}")
+                logger.info(f" Success: {response_url}")
 
                 result = URLResult(
                     url=url,
@@ -282,7 +282,7 @@ class GoogleIndexingProcessor:
             batch_result: BatchResult object to store results
             chunk_number: Current chunk number for logging
         """
-        logger.info(f"📦 Processing batch chunk {chunk_number} ({len(urls)} URLs)")
+        logger.info(f" Processing batch chunk {chunk_number} ({len(urls)} URLs)")
         if not self.service:
             raise RuntimeError("Service not initialized. Call _authenticate() first.")
 
@@ -302,7 +302,7 @@ class GoogleIndexingProcessor:
                 batch.add(request, callback=callback)
 
             except Exception as e:
-                logger.error(f"❌ Error adding {url} to batch: {e}")
+                logger.error(f" Error adding {url} to batch: {e}")
                 result = URLResult(
                     url=url,
                     action=action,
@@ -316,7 +316,7 @@ class GoogleIndexingProcessor:
         try:
             batch.execute()
         except Exception as e:
-            logger.error(f"❌ Batch execution error: {e}", exc_info=True)
+            logger.error(f" Batch execution error: {e}", exc_info=True)
 
     def process_job(self, job_data: dict) -> BatchResult:
         """
@@ -328,13 +328,13 @@ class GoogleIndexingProcessor:
         Returns:
             BatchResult with complete processing results
         """
-        logger.info(f"🚀 Starting indexing job for shop: {job_data.get('shop')}")
+        logger.info(f" Starting indexing job for shop: {job_data.get('shop')}")
 
         batch_result = BatchResult()
 
         # Authenticate
         if not self._authenticate():
-            logger.error("❌ Cannot proceed without authentication")
+            logger.error(" Cannot proceed without authentication")
             return batch_result
 
         # Extract configuration
@@ -348,7 +348,7 @@ class GoogleIndexingProcessor:
         )
 
         if not url_mapping:
-            logger.warning("⚠️ No URLs to process")
+            logger.warning(" No URLs to process")
             return batch_result
 
         # Prepare URL list with attempts from original data
@@ -376,7 +376,7 @@ class GoogleIndexingProcessor:
         batch_result.finalize()
 
         logger.info(
-            f"🎉 Job completed: {batch_result.successful} successful, "
+            f"-- Job completed: {batch_result.successful} successful, "
             f"{batch_result.failed} failed, "
             f"{batch_result.quota_exceeded} quota exceeded"
         )
@@ -433,7 +433,7 @@ def process_indexing_job(job_data: dict, decode_function: Callable) -> dict:
         }
 
     except Exception as e:
-        logger.error(f"❌ Job processing failed: {e}", exc_info=True)
+        logger.error(f" Job processing failed: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
