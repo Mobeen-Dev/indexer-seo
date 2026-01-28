@@ -1,6 +1,10 @@
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.3
+aiosignal==1.4.0
 annotated-types==0.7.0
 anyio==4.12.1
 asyncpg==0.31.0
+attrs==25.4.0
 cachetools==6.2.4
 certifi==2025.11.12
 cffi==2.0.0
@@ -9,6 +13,7 @@ click==8.3.1
 colorama==0.4.6
 cryptography==46.0.3
 deprecation==2.1.0
+frozenlist==1.8.0
 fsspec==2026.1.0
 google-api-core==2.28.1
 google-api-python-client==2.187.0

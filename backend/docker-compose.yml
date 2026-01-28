@@ -12,6 +12,22 @@ services:
         --requirepass strongpassword123
         --appendonly yes
         --protected-mode yes
+  
+  workers:
+    build: .
+    depends_on:
+      - redis
+    volumes:
+      - logs:/app/logs   # container path
+
+    restart: unless-stopped
 
 volumes:
+  logs:
+    driver: local
+    driver_opts:
+      type: none
+      device: ${HOME}/quick-seo/logs  # host path
+      o: bind
+
   redis_data:
