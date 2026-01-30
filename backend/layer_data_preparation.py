@@ -185,7 +185,7 @@ def fetch_auth_and_urls(shop: str) -> Tuple[Optional[Auth], List[UrlEntry]]:
                 .select("webUrl, indexAction, attempts")
                 .eq("shop", shop)
                 .eq("status", UrlStatus.PENDING.value)
-                .eq("isGoogleIndexed", False) 
+                .eq("isGoogleIndexed", False)
                 .neq("indexAction", IndexAction.IGNORE.value)
                 .order("attempts", desc=True)
                 .limit(final_limit)
@@ -253,7 +253,8 @@ async def process_job(job_id: str, job: dict, stream_name: str, msg_id: str):
                 return
 
             # Fetch or retrieve cached auth
-            auth = AUTH_CACHE.get(shop)
+            # auth = AUTH_CACHE.get(shop)
+            auth = None
             if not auth:
                 auth, url_entries = await asyncio.to_thread(fetch_auth_and_urls, shop)
                 if not auth:
@@ -261,8 +262,8 @@ async def process_job(job_id: str, job: dict, stream_name: str, msg_id: str):
                     await r.xack(stream_name, GROUP, msg_id)
                     return
 
-                AUTH_CACHE[shop] = auth
-                manage_cache_size()
+                # AUTH_CACHE[shop] = auth
+                # manage_cache_size()
             else:
                 _, url_entries = await asyncio.to_thread(fetch_auth_and_urls, shop)
 
