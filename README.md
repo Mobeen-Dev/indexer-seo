@@ -28,7 +28,7 @@ This project is architected as a hybrid application consisting of a **Shopify Re
 ### Backend (Indexing Engine)
 *   **Framework**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
 *   **Queue/Broker**: Redis
-*   **Database**: Supabase / PostgreSQL (asyncpg)
+*   **Database**: PostgreSQL (local Docker or managed) via asyncpg/SQLAlchemy
 *   **APIs**: Google Indexing API, Bing Webmaster API
 *   **Task Management**: Asyncio Background Tasks
 
