@@ -1,9 +1,26 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: indexer-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: indexer_seo
+      POSTGRES_USER: indexer
+      POSTGRES_PASSWORD: indexer
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indexer -d indexer_seo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis-stack:
     image: redis/redis-stack:7.4.0-v8
     container_name: redis-stack
     ports:
-      - "6380:6379" # bind to localhost ONLY
+      - "637:6379" # bind to localhost ONLY
       - "8001:8001" # Redis Insight | Open to see working details
     volumes:
       - redis_data:/data
@@ -17,6 +34,11 @@ services:
     build: .
     depends_on:
       - redis-stack
+      - postgres
+    env_file:
+      - ./creds/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://indexer:indexer@postgres:5432/indexer_seo
     volumes:
       - logs:/app/logs # container path
 
@@ -31,3 +53,4 @@ volumes:
       o: bind
 
   redis_data:
+  postgres_data:
