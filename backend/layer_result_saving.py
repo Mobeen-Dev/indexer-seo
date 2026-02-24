@@ -8,7 +8,6 @@ import signal
 import sys
 import os
 from datetime import datetime, timezone
-from supabase import create_client, Client
 from typing import List, Optional, Dict, Any
 
 from tenacity import (
@@ -20,6 +19,8 @@ from tenacity import (
 
 import redis.asyncio as redis
 
+from db import db_session, test_db_connection
+from db_model import UrlEntry, UrlStatus
 from config import (
     settings,
     L3_GROUP,
@@ -35,9 +36,6 @@ REDIS_PORT: int = settings.REDIS_PORT
 REDIS_PASS: str = settings.REDIS_PASS
 REDIS_HOST: str = settings.REDIS_HOST
 
-SUPABASE_URL: str = settings.SUPABASE_URL
-SUPABASE_KEY: str = settings.SUPABASE_KEY
-
 HASH_PATH: str = L3_HASH_PATH
 STREAM_PREFIX = L3_STREAM_PREFIX
 
@@ -49,7 +47,6 @@ LOG_FILE = os.path.join("./logs", "worker_l3.log")
 
 
 # Timeouts
-SUPABASE_TIMEOUT = 30  # seconds
 REDIS_TIMEOUT = 10  # seconds
 GRACEFUL_SHUTDOWN_TIMEOUT = 30  # seconds
 
@@ -74,7 +71,6 @@ logger = logging.getLogger(__name__)
 shutdown_event = asyncio.Event()
 active_tasks: set = set()
 r: Optional[redis.Redis] = None
-supabase: Optional[Client] = None
 
 
 # ============================================================================
@@ -82,7 +78,7 @@ supabase: Optional[Client] = None
 # ============================================================================
 async def init_connections():
     """Initialize Redis connection with retry logic."""
-    global r, supabase
+    global r
 
     logger.info("Initializing Redis connection...")
     r = redis.Redis(
@@ -104,15 +100,13 @@ async def init_connections():
         logger.error(f"Failed to connect to Redis: {e}")
         raise
 
-    # Initialize Supabase
-    logger.info("Initializing Supabase connection...")
+    # Validate database connectivity
+    logger.info("Validating PostgreSQL connection...")
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # Test connection with a simple query
-        supabase.table("Auth").select("shop").limit(1).execute()
-        logger.info("Supabase connection established")
+        await asyncio.to_thread(test_db_connection)
+        logger.info("PostgreSQL connection established")
     except Exception as e:
-        logger.error(f"Failed to connect to Supabase: {e}")
+        logger.error(f"Failed to connect to PostgreSQL: {e}")
         raise
 
 
@@ -190,24 +184,25 @@ def split_google_bing_urls(google_urls: list[str], bing_urls: list[str]):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((ConnectionError, TimeoutError)),
 )
-def update_google_and_bing(supabase, shop: str, urls: list[str]):
+def update_google_and_bing(shop: str, urls: list[str]):
     if not urls:
-        return None
+        return 0
 
-    return (
-        supabase.table("UrlEntry")
-        .update(
-            {
-                "isGoogleIndexed": True,
-                "isBingIndexed": True,
-                "status": "COMPLETED",
-                "lastIndexedAt": datetime.now(timezone.utc).isoformat(),
-            }
+    with db_session() as session:
+        updated = (
+            session.query(UrlEntry)
+            .filter(UrlEntry.shop == shop, UrlEntry.webUrl.in_(urls))
+            .update(
+                {
+                    UrlEntry.isGoogleIndexed: True,
+                    UrlEntry.isBingIndexed: True,
+                    UrlEntry.status: UrlStatus.COMPLETED,
+                    UrlEntry.lastIndexedAt: datetime.now(timezone.utc),
+                },
+                synchronize_session=False,
+            )
         )
-        .eq("shop", shop)
-        .in_("webUrl", urls)
-        .execute()
-    )
+    return updated
 
 
 @retry(
@@ -215,23 +210,27 @@ def update_google_and_bing(supabase, shop: str, urls: list[str]):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((ConnectionError, TimeoutError)),
 )
-def update_google_only(supabase, shop: str, urls: list[str]):
+def update_google_only(shop: str, urls: list[str]):
     if not urls:
-        return None
+        return 0
 
-    return (
-        supabase.table("UrlEntry")
-        .update(
-            {
-                "isGoogleIndexed": True,
-                "lastIndexedAt": datetime.now(timezone.utc).isoformat(),
-            }
+    with db_session() as session:
+        updated = (
+            session.query(UrlEntry)
+            .filter(
+                UrlEntry.shop == shop,
+                UrlEntry.isGoogleIndexed.is_(False),
+                UrlEntry.webUrl.in_(urls),
+            )
+            .update(
+                {
+                    UrlEntry.isGoogleIndexed: True,
+                    UrlEntry.lastIndexedAt: datetime.now(timezone.utc),
+                },
+                synchronize_session=False,
+            )
         )
-        .eq("shop", shop)
-        .eq("isGoogleIndexed", False)  # avoid useless writes
-        .in_("webUrl", urls)
-        .execute()
-    )
+    return updated
 
 
 @retry(
@@ -239,30 +238,34 @@ def update_google_only(supabase, shop: str, urls: list[str]):
     wait=wait_exponential(multiplier=1, min=4, max=10),
     retry=retry_if_exception_type((ConnectionError, TimeoutError)),
 )
-def update_bing_only(supabase, shop: str, urls: list[str]):
+def update_bing_only(shop: str, urls: list[str]):
     if not urls:
-        return None
+        return 0
 
-    return (
-        supabase.table("UrlEntry")
-        .update(
-            {
-                "isBingIndexed": True,
-            }
+    with db_session() as session:
+        updated = (
+            session.query(UrlEntry)
+            .filter(
+                UrlEntry.shop == shop,
+                UrlEntry.isBingIndexed.is_(False),
+                UrlEntry.webUrl.in_(urls),
+            )
+            .update(
+                {
+                    UrlEntry.isBingIndexed: True,
+                },
+                synchronize_session=False,
+            )
         )
-        .eq("shop", shop)
-        .eq("isBingIndexed", False)
-        .in_("webUrl", urls)
-        .execute()
-    )
+    return updated
 
 
-def update_indexing_results(supabase, shop: str, google_urls, bing_urls):
+def update_indexing_results(shop: str, google_urls, bing_urls):
     both, google_only, bing_only = split_google_bing_urls(google_urls, bing_urls)
 
-    update_google_and_bing(supabase, shop, both)
-    update_google_only(supabase, shop, google_only)
-    update_bing_only(supabase, shop, bing_only)
+    update_google_and_bing(shop, both)
+    update_google_only(shop, google_only)
+    update_bing_only(shop, bing_only)
 
 
 # ============================================================================
@@ -292,7 +295,7 @@ async def process_job(job_id: str, job: dict, stream_name: str, msg_id: str):
             bing = job.get("bing", {})
             bing_urls = get_successful_bing_urls(bing)
 
-            update_indexing_results(supabase, shop, google_urls, bing_urls)
+            await asyncio.to_thread(update_indexing_results, shop, google_urls, bing_urls)
 
             # Update job status in hash
             processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()

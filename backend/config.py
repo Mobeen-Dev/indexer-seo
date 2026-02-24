@@ -1,15 +1,12 @@
 # shopify_bridge/config.py
-import os
-import sys
 from pydantic import Field
 from pydantic_settings import BaseSettings
-from typing import List
 
 
 class Settings(BaseSettings):
-    # DATABASE_URL: str = Field(alias="DATABASE_URL")
-    SUPABASE_URL: str = Field(alias="SUPABASE_URL")
-    SUPABASE_KEY: str = Field(alias="SUPABASE_KEY")
+    DATABASE_URL: str = Field(alias="DATABASE_URL")
+    SUPABASE_URL: str | None = Field(default=None, alias="SUPABASE_URL")
+    SUPABASE_KEY: str | None = Field(default=None, alias="SUPABASE_KEY")
 
     REDIS_PORT: int = Field(alias="REDIS_PORT")
     REDIS_PASS: str = Field(alias="REDIS_PASS")

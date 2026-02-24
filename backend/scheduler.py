@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from db_model import Auth
 import redis.asyncio as redis
-from supabase import create_client, Client
+from sqlalchemy import select
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -19,6 +19,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 
+from db import db_session, test_db_connection
 from config import (
     settings,
     L1_HASH_PATH,
@@ -28,8 +29,6 @@ from config import (
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-SUPABASE_URL: str = settings.SUPABASE_URL
-SUPABASE_KEY: str = settings.SUPABASE_KEY
 REDIS_PORT: int = settings.REDIS_PORT
 REDIS_PASS: str = settings.REDIS_PASS
 REDIS_HOST: str = settings.REDIS_HOST
@@ -51,7 +50,6 @@ SCHEDULER_STATS_KEY = "scheduler:stats"  # Hash: various stats
 LOG_FILE = os.path.join("./logs", "scheduler.log")
 
 # Timeouts
-SUPABASE_TIMEOUT = 30  # seconds
 REDIS_TIMEOUT = 10  # seconds
 GRACEFUL_SHUTDOWN_TIMEOUT = 30  # seconds
 
@@ -77,7 +75,6 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 shutdown_event = asyncio.Event()
 r: Optional[redis.Redis] = None
-supabase: Optional[Client] = None
 
 
 # ============================================================================
@@ -85,7 +82,7 @@ supabase: Optional[Client] = None
 # ============================================================================
 async def init_connections():
     """Initialize all external connections with retry logic."""
-    global r, supabase
+    global r
 
     # Initialize Redis with connection pool
     logger.info("Initializing Redis connection...")
@@ -108,15 +105,13 @@ async def init_connections():
         logger.error(f"Failed to connect to Redis: {e}")
         raise
 
-    # Initialize Supabase
-    logger.info("Initializing Supabase connection...")
+    # Validate database connectivity
+    logger.info("Validating PostgreSQL connection...")
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # Test connection with a simple query
-        supabase.table("Auth").select("shop").limit(1).execute()
-        logger.info("Supabase connection established")
+        await asyncio.to_thread(test_db_connection)
+        logger.info("PostgreSQL connection established")
     except Exception as e:
-        logger.error(f"Failed to connect to Supabase: {e}")
+        logger.error(f"Failed to connect to PostgreSQL: {e}")
         raise
 
 
@@ -144,31 +139,19 @@ async def cleanup_connections():
 )
 def fetch_active_shops() -> List[str]:
     """
-    Fetch all unique active shop names from Supabase.
+    Fetch all unique active shop names from PostgreSQL.
 
     Returns:
         List of shop names (strings)
     """
-    if supabase is None:
-        raise RuntimeError("Supabase connection not initialized")
-
     try:
-        response = supabase.table("Auth").select("shop").execute()
-        data = response.data
-
-        if not isinstance(data, list) or not data:
+        with db_session() as session:
+            rows = session.execute(select(Auth.shop)).all()
+        if not rows:
             logger.warning("No shops found in database")
             return []
 
-        shops: List[str] = []
-
-        for row in data:
-            if not isinstance(row, dict):
-                continue
-
-            shop = row.get("shop")
-            if isinstance(shop, str):
-                shops.append(shop)
+        shops = sorted({row[0] for row in rows if isinstance(row[0], str)})
 
         logger.info(f"Fetched {len(shops)} unique shops from database")
         return shops
@@ -466,7 +449,7 @@ async def scheduling_cycle():
     logger.info("Starting scheduling cycle...")
 
     try:
-        # Fetch active shops from Supabase
+        # Fetch active shops from PostgreSQL
         shops = await asyncio.to_thread(fetch_active_shops)
 
         if not shops:

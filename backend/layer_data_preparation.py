@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 # from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
-from supabase import create_client, Client
+from sqlalchemy import select
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -21,6 +21,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 
+from db import db_session, test_db_connection
 from db_model import (
     Auth,
     UrlItem,
@@ -45,8 +46,6 @@ from config import (
 # ============================================================================
 AUTH_CACHE: Dict[str, Auth] = {}
 AUTH_CACHE_MAX_SIZE = 10000  # Prevent unbounded memory growth
-SUPABASE_URL: str = settings.SUPABASE_URL
-SUPABASE_KEY: str = settings.SUPABASE_KEY
 REDIS_PORT: int = settings.REDIS_PORT
 REDIS_PASS: str = settings.REDIS_PASS
 REDIS_HOST: str = settings.REDIS_HOST
@@ -60,7 +59,6 @@ CONSUMER = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"  # Unique consumer I
 LOG_FILE = os.path.join("./logs", "worker_l1.log")
 
 # Timeouts
-SUPABASE_TIMEOUT = 30  # seconds
 REDIS_TIMEOUT = 10  # seconds
 GRACEFUL_SHUTDOWN_TIMEOUT = 30  # seconds
 
@@ -87,7 +85,6 @@ logger = logging.getLogger(__name__)
 shutdown_event = asyncio.Event()
 active_tasks: set = set()
 r: Optional[redis.Redis] = None
-supabase: Optional[Client] = None
 
 
 # ============================================================================
@@ -95,7 +92,7 @@ supabase: Optional[Client] = None
 # ============================================================================
 async def init_connections():
     """Initialize all external connections with retry logic."""
-    global r, supabase
+    global r
 
     # Initialize Redis with connection pool
     logger.info("Initializing Redis connection...")
@@ -119,15 +116,13 @@ async def init_connections():
         logger.error(f"Failed to connect to Redis: {e}")
         raise
 
-    # Initialize Supabase
-    logger.info("Initializing Supabase connection...")
+    # Validate database connectivity
+    logger.info("Validating PostgreSQL connection...")
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # Test connection with a simple query
-        supabase.table("Auth").select("shop").limit(1).execute()
-        logger.info("Supabase connection established")
+        await asyncio.to_thread(test_db_connection)
+        logger.info("PostgreSQL connection established")
     except Exception as e:
-        logger.error(f"Failed to connect to Supabase: {e}")
+        logger.error(f"Failed to connect to PostgreSQL: {e}")
         raise
 
 
@@ -155,68 +150,48 @@ async def cleanup_connections():
 )
 def fetch_auth_and_urls(shop: str) -> Tuple[Optional[Auth], List[UrlEntry]]:
     """
-    Fetch auth and URL entries from Supabase with retry logic.
+    Fetch auth and URL entries from PostgreSQL with retry logic.
 
     Returns:
         Tuple of (Auth object or None, List of UrlEntry objects)
     """
-    if supabase:
-        try:
-            # Fetch auth
-            auth_response = (
-                supabase.table("Auth").select("*").eq("shop", shop).execute()
+    try:
+        with db_session() as session:
+            auth = (
+                session.execute(select(Auth).where(Auth.shop == shop))
+                .scalars()
+                .first()
             )
 
-            if not auth_response.data:
+            if not auth:
                 logger.warning(f"No auth found for shop: {shop}")
                 return None, []
 
-            auth_data = auth_response.data[0]
-            auth = Auth(**auth_data)  # type: ignore
-
-            # Calculate limits
-            bing_index_limit = auth.settings.get("bingLimit", 200)
-            google_index_limit = auth.settings.get("googleLimit", 200)
+            settings_data = auth.settings if isinstance(auth.settings, dict) else {}
+            bing_index_limit = settings_data.get("bingLimit", 200)
+            google_index_limit = settings_data.get("googleLimit", 200)
             final_limit = int(max(bing_index_limit, google_index_limit) * 1.05)
 
-            # Fetch URLs with all required fields
-            urls_response = (
-                supabase.table("UrlEntry")
-                .select("webUrl, indexAction, attempts")
-                .eq("shop", shop)
-                .eq("status", UrlStatus.PENDING.value)
-                .eq("isGoogleIndexed", False)
-                .neq("indexAction", IndexAction.IGNORE.value)
-                .order("attempts", desc=True)
-                .limit(final_limit)
-                .execute()
+            url_entries = (
+                session.execute(
+                    select(UrlEntry)
+                    .where(UrlEntry.shop == shop)
+                    .where(UrlEntry.status == UrlStatus.PENDING)
+                    .where(UrlEntry.isGoogleIndexed.is_(False))
+                    .where(UrlEntry.indexAction != IndexAction.IGNORE)
+                    .order_by(UrlEntry.attempts.desc())
+                    .limit(final_limit)
+                )
+                .scalars()
+                .all()
             )
 
-            # Convert to UrlEntry objects
-            url_entries = []
-            for url_data in urls_response.data:
-                try:
-                    url_entry = UrlEntry(
-                        webUrl=url_data.get("webUrl"),  # type: ignore
-                        indexAction=IndexAction(url_data.get("indexAction")),  # type: ignore
-                        attempts=url_data.get("attempts", 1),  # type: ignore
-                    )
-                    url_entries.append(url_entry)
-                except (ValueError, TypeError) as e:
-                    logger.warning(
-                        f"Skipping invalid URL entry: {url_data}, error: {e}"
-                    )
-                    continue
+        logger.info(f"Fetched {len(url_entries)} URLs for shop {shop}")
+        return auth, url_entries
 
-            logger.info(f"Fetched {len(url_entries)} URLs for shop {shop}")
-            return auth, url_entries
-
-        except Exception as e:
-            logger.error(
-                f"Error fetching auth and urls for shop {shop}: {e}", exc_info=True
-            )
-            raise
-    raise
+    except Exception as e:
+        logger.error(f"Error fetching auth and urls for shop {shop}: {e}", exc_info=True)
+        raise
 
 
 # ============================================================================
