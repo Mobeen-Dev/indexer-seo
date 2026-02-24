@@ -87,8 +87,8 @@ class Auth(Base):
             "googleConfig": self.googleConfig,
             "bingApiKey": self.bingApiKey,
             "settings": self.settings,
-            "createdAt": self.createdAt,
-            "updatedAt": self.updatedAt,
+            "createdAt": self.createdAt.isoformat() if self.createdAt else None,
+            "updatedAt": self.updatedAt.isoformat() if self.updatedAt else None,
         }
 
 
@@ -104,6 +104,8 @@ class UrlEntry(Base):
     status = Column(SQLEnum(UrlStatus, name="urlstatus"), index=True)
 
     attempts = Column(Integer)
+    isGoogleIndexed = Column(Boolean, nullable=False, default=False)
+    isBingIndexed = Column(Boolean, nullable=False, default=False)
     submittedAt = Column(DateTime, index=True)
     lastEventAt = Column(DateTime)
     lastTriedAt = Column(DateTime)
