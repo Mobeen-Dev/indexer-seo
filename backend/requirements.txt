@@ -37,7 +37,7 @@ packaging==25.0
 propcache==0.4.1
 proto-plus==1.27.0
 protobuf==6.33.2
-psycopg2==2.9.11
+psycopg2-binary==2.9.11
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.23
