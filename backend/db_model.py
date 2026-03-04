@@ -95,33 +95,49 @@ class Auth(Base):
 class UrlEntry(Base):
     __tablename__ = "UrlEntry"
 
-    id = Column(String, primary_key=True)
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
     shop = Column(String, index=True, nullable=False)
     baseId = Column(BigInteger, nullable=False)
     webUrl = Column(Text, nullable=False)
 
-    indexAction = Column(SQLEnum(IndexAction, name="indexaction"), index=True)
-    status = Column(SQLEnum(UrlStatus, name="urlstatus"), index=True)
+    indexAction = Column(
+        SQLEnum(IndexAction, name="IndexAction", create_type=False),
+        index=True,
+        nullable=False,
+        default=IndexAction.INDEX,
+        server_default="INDEX",
+    )
+    status = Column(
+        SQLEnum(UrlStatus, name="UrlStatus", create_type=False),
+        index=True,
+        nullable=False,
+        default=UrlStatus.PENDING,
+        server_default="PENDING",
+    )
 
-    attempts = Column(Integer)
-    isGoogleIndexed = Column(Boolean, nullable=False, default=False)
-    isBingIndexed = Column(Boolean, nullable=False, default=False)
+    attempts = Column(Integer, nullable=False, default=2, server_default="2")
+    isGoogleIndexed = Column(Boolean, nullable=False, default=False, server_default="false")
+    isBingIndexed = Column(Boolean, nullable=False, default=False, server_default="false")
     submittedAt = Column(DateTime, index=True)
     lastEventAt = Column(DateTime)
     lastTriedAt = Column(DateTime)
     lastIndexedAt = Column(DateTime)
     meta = Column("metadata", JSONB)
 
-    # Constraints
+    # Constraints (names match Prisma-generated migrations)
     __table_args__ = (
-        UniqueConstraint("shop", "webUrl", name="uq_url_entry_shop_weburl"),
-        UniqueConstraint("shop", "baseId", name="uq_url_entry_shop_baseid"),
-        Index("ix_url_entry_shop", "shop"),
-        Index("ix_url_entry_status", "status"),
-        Index("ix_url_entry_indexaction", "indexAction"),
-        # Performance-focused ordered indexes
+        UniqueConstraint("shop", "webUrl", name="UrlEntry_shop_webUrl_key"),
+        UniqueConstraint("shop", "baseId", name="UrlEntry_shop_baseId_key"),
+        Index("UrlEntry_shop_idx", "shop"),
+        Index("UrlEntry_status_idx", "status"),
+        Index("UrlEntry_indexAction_idx", "indexAction"),
         Index(
-            "ix_url_entry_lastindexed_attempts",
+            "UrlEntry_lastIndexedAt_attempts_idx",
             "lastIndexedAt",
             "attempts",
             postgresql_ops={
@@ -130,7 +146,7 @@ class UrlEntry(Base):
             },
         ),
         Index(
-            "ix_url_entry_shop_status_lastindexed_attempts",
+            "UrlEntry_shop_status_lastIndexedAt_attempts_idx",
             "shop",
             "status",
             "lastIndexedAt",
@@ -144,7 +160,7 @@ class UrlEntry(Base):
 
 
 class IndexTask(Base):
-    __tablename__ = "index_task"
+    __tablename__ = "IndexTask"
 
     id = Column(
         BigInteger,
@@ -169,8 +185,8 @@ class IndexTask(Base):
     completedAt = Column(DateTime(timezone=True))
 
     __table_args__ = (
-        UniqueConstraint("shop", "url", name="uq_index_task_shop_url"),
-        Index("ix_index_task_shop_iscompleted", "shop", "isCompleted"),
+        UniqueConstraint("shop", "url", name="IndexTask_shop_url_key"),
+        Index("IndexTask_shop_isCompleted_idx", "shop", "isCompleted"),
     )
 
 
