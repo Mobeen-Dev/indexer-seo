@@ -86,7 +86,7 @@ EXPECTED_ENUMS: Dict[str, List[str]] = {
 # Full column spec per table: (col_name, pg_type_prefix, nullable, has_default)
 # pg_type_prefix is matched case-insensitively against the start of the PG type
 AUTH_COLUMNS: List[Tuple[str, str, bool, bool]] = [
-    ("id",           "uuid",                  False, True),
+    ("id",           "uuid",                  False, False),  # Prisma generates UUID client-side
     ("shop",         "text",                  False, False),
     ("googleConfig", "text",                  True,  False),
     ("bingApiKey",   "text",                  True,  False),
@@ -96,12 +96,12 @@ AUTH_COLUMNS: List[Tuple[str, str, bool, bool]] = [
 ]
 
 URLENTRY_COLUMNS: List[Tuple[str, str, bool, bool]] = [
-    ("id",              "uuid",       False, True),
+    ("id",              "uuid",       False, False),  # Prisma generates UUID client-side
     ("shop",            "text",       False, False),
     ("baseId",          "bigint",     False, False),
     ("webUrl",          "text",       False, False),
-    ("indexAction",     "indexaction", False, True),   # enum type
-    ("status",          "urlstatus",  False, True),    # enum type
+    ("indexAction",     "varchar|indexaction", False, True),   # Prisma enum: native enum or varchar
+    ("status",          "varchar|urlstatus",  False, True),    # Prisma enum: native enum or varchar
     ("attempts",        "integer",    False, True),
     ("isGoogleIndexed", "boolean",    False, True),
     ("isBingIndexed",   "boolean",    False, True),
@@ -445,9 +445,12 @@ def tests_columns(engine: Engine):
                 assert info is not None, f"Column '{cn}' not found in table '{t}'"
 
                 pg_type = str(info["type"]).lower()
-                assert pg_type.startswith(tp.lower()), (
+                # Support pipe-separated type alternatives (e.g. "varchar|indexaction")
+                type_alternatives = [alt.strip().lower() for alt in tp.split("|")]
+                type_ok = any(pg_type.startswith(alt) for alt in type_alternatives)
+                assert type_ok, (
                     f"Table '{t}'.{cn}: type mismatch. "
-                    f"Expected starts with '{tp}', got '{pg_type}'"
+                    f"Expected starts with one of {type_alternatives}, got '{pg_type}'"
                 )
 
                 actual_nullable = info.get("nullable", True)
@@ -496,7 +499,7 @@ def tests_primary_keys(engine: Engine):
 
 
 def tests_unique_constraints(engine: Engine):
-    """Section 6: Verify unique constraints."""
+    """Section 6: Verify unique constraints (Prisma uses UNIQUE INDEX)."""
     print("\n━━━ Section 6: Unique Constraints ━━━")
     inspector = _safe_inspect(engine, "Unique Constraints")
     if inspector is None:
@@ -504,17 +507,26 @@ def tests_unique_constraints(engine: Engine):
 
     for table, expected_uniques in EXPECTED_UNIQUE.items():
         def check(t=table, exp=expected_uniques):
+            # Prisma creates UNIQUE INDEX, not UNIQUE CONSTRAINT.
+            # Check both: get_unique_constraints() and unique indexes from get_indexes().
             uqs = inspector.get_unique_constraints(t)
             actual_sets = [set(uq["column_names"]) for uq in uqs]
+
+            # Also collect unique indexes
+            indexes = inspector.get_indexes(t)
+            for idx in indexes:
+                if idx.get("unique", False):
+                    actual_sets.append(set(idx["column_names"]))
+
             missing = []
             for eu in exp:
                 if eu not in actual_sets:
                     missing.append(eu)
             assert not missing, (
-                f"Table '{t}' missing unique constraints: {missing}\n"
+                f"Table '{t}' missing unique constraints/indexes: {missing}\n"
                 f"Found: {actual_sets}"
             )
-            return f"Table '{t}' unique constraints: {[sorted(s) for s in actual_sets]}"
+            return f"Table '{t}' unique constraints/indexes: {[sorted(s) for s in actual_sets]}"
         run_check(f"'{table}' unique constraints", check)
 
 
