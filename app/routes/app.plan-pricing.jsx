@@ -1,7 +1,4 @@
-import { useEffect } from "react";
-import { useFetcher } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
-import { useLoaderData, useRouteError } from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
 import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "../shopify.server";
 
 import { PricingCard } from "../components/PricingCard";
@@ -15,193 +12,199 @@ export const loader = async ({ request }) => {
     isTest: true,
   });
 
-  console.log("hasActivePayment");
-  console.log(hasActivePayment);
-  console.log(appSubscriptions);
-
-  // if (!hasActivePayment) {
-  //   await billing.require({
-  //     plans: [MONTHLY_PLAN, ANNUAL_PLAN],
-  //     isTest: true,
-  //     onFailure: async () =>
-  //       billing.request({
-  //         plan: MONTHLY_PLAN,
-  //         isTest: true,
-  //         returnUrl: `${process.env.SHOPIFY_APP_URL}/app`,
-  //       }),
-  //   });
-  // }
-
   return {
     shop: session.shop,
+    hasActivePayment,
+    activePlan: appSubscriptions?.[0]?.name ?? null,
   };
+};
 
-  await billing.require({
-    plans: [MONTHLY_PLAN],
+export const action = async ({ request }) => {
+  const { billing } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const plan = formData.get("plan");
+
+  if (plan !== MONTHLY_PLAN && plan !== ANNUAL_PLAN) {
+    return { error: "Invalid plan selected" };
+  }
+
+  await billing.request({
+    plan,
     isTest: true,
-    onFailure: async () => billing.request({ plan: MONTHLY_PLAN }),
   });
 
-  return new Response(
-    JSON.stringify({
-      shop: session.shop,
-    }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    },
-  );
+  // billing.request() throws a Response redirect to Shopify's confirmation
+  // page, so code below this point is not reached.
+  return null;
 };
 
 export default function PricingPage() {
-  const { shop } = useLoaderData();
-  console.log(shop);
+  const { hasActivePayment, activePlan } = useLoaderData();
+  const fetcher = useFetcher();
+  const isSubmitting = fetcher.state !== "idle";
+
+  const selectPlan = (plan) => {
+    fetcher.submit({ plan }, { method: "POST" });
+  };
+
+  const isMonthlyActive = activePlan === MONTHLY_PLAN;
+  const isAnnualActive = activePlan === ANNUAL_PLAN;
 
   const faqData = [
     {
-      id: 1000,
-      title:
-        "Are there any limits on how many URLs I can index on the Standard plan?",
+      id: 1,
+      title: "Are there limits on how many URLs I can index?",
       content: (
         <s-text>
           All plans include unlimited URL indexing until your indexing engine
-          quota is reached.
-        </s-text>
-      ),
-    },
-    {
-      id: 7,
-      title: "What should I do if a URL fails to submit?",
-      content: (
-        <s-text>
-          Our integration will retry any URLs that fail. For persistent problems
-          or unclear error messages, please contact our support team for
-          assistance.
-        </s-text>
-      ),
-    },
-    {
-      id: 1,
-      title:
-        "Are there any limitations to the number of URLs that can be submitted?",
-      content: (
-        <s-text>
-          There isn't an official limit on the number of URLs that can be
-          submitted daily. It may vary per search engine. If you start seeing
-          requests with status Failed (multiples times), get in touch with us
-          and we will help!
+          quota is reached. Quotas vary by search engine provider.
         </s-text>
       ),
     },
     {
       id: 2,
-      title: "Which types of pages are submitted to Indexing Engine?",
+      title: "What happens if a URL fails to submit?",
       content: (
         <s-text>
-          We support Products, Collections, Blog Posts and Shopify Pages.
+          Our system automatically retries failed URLs. If problems persist,
+          contact us at <s-text fontWeight="bold">info@digilogsoftwares.com</s-text> and
+          we will help.
         </s-text>
       ),
     },
     {
-      id: 0,
-      title: "Who can I contact for support or more questions?",
+      id: 3,
+      title: "Which types of pages are submitted?",
       content: (
         <s-text>
-          For support inquiries or more detailed questions, please contact our
-          customer service team via email at{" "}
-          <strong> info@digilogsoftwares.com </strong>.
+          We support Products, Collections, Blog Posts, and Shopify Pages.
+        </s-text>
+      ),
+    },
+    {
+      id: 4,
+      title: "Can I switch plans later?",
+      content: (
+        <s-text>
+          Yes. You can upgrade or downgrade at any time. Shopify handles
+          prorating automatically.
+        </s-text>
+      ),
+    },
+    {
+      id: 5,
+      title: "Who can I contact for support?",
+      content: (
+        <s-text>
+          Reach our support team at{" "}
+          <s-text fontWeight="bold">info@digilogsoftwares.com</s-text>.
         </s-text>
       ),
     },
   ];
 
   return (
-    <s-page>
-      <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: 0 }}>
-        Choose plan
-      </h1>
-      <p>Unlock all features and start your 21-day free trial.</p>
-      <s-box paddingBlockStart="small" paddingBlockEnd="large">
-        <s-stack
-          direction="inline"
-          gap="large"
-          alignItems="center"
-          justifyContent="start"
-        >
+    <s-page
+      heading="Choose your plan"
+      subheading="Unlock all features and start your 21-day free trial."
+    >
+      {/* Active plan banner */}
+      {hasActivePayment ? (
+        <s-banner
+          heading={`You're on the ${activePlan} plan`}
+          tone="success"
+        />
+      ) : null}
+
+      {/* Plan cards */}
+      <s-box paddingBlockStart="large" paddingBlockEnd="large">
+        <s-grid gridTemplateColumns="1fr 1fr 1fr" gap="large">
           <PricingCard
             title="Standard"
-            description="This is a great plan for stores that are just starting out"
+            description="Great for stores just starting out with SEO indexing."
             features={[
-              "Automatic Submits URL for Indexing ",
+              "Automatic URL submissions",
               "Retry failed submissions",
               "Manual URL submissions",
-              "Submission Records",
+              "Submission records",
             ]}
-            price="$6"
+            price="$5"
             frequency="month"
             button={{
-              content: "Select Plan",
+              content: isMonthlyActive
+                ? "Current plan"
+                : isSubmitting
+                  ? "Redirecting…"
+                  : "Select plan",
               props: {
-                variant: "primary",
-                onClick: () => console.log("clicked plan!"),
+                variant: isMonthlyActive ? "secondary" : "primary",
+                disabled: isMonthlyActive || isSubmitting,
+                onClick: () => selectPlan(MONTHLY_PLAN),
               },
             }}
           />
           <PricingCard
             title="Advanced"
             featuredText="Most Popular"
-            description="For stores that are growing and need a long term reliable solution"
+            description="For growing stores that need long-term reliable indexing."
             features={[
-              "Process up to 10,000 urls/day",
-              "Handle Google and Web Master indexing",
-              "Submission Analytics feature",
-              "Ai powered indexing strategy",
-              "24/7 Customer Support",
+              "Up to 10,000 URLs per day",
+              "Google and Bing indexing",
+              "Submission analytics",
+              "AI-powered indexing strategy",
+              "24/7 customer support",
             ]}
             price="$50"
             frequency="year"
             button={{
-              content: "Select Plan",
+              content: isAnnualActive
+                ? "Current plan"
+                : isSubmitting
+                  ? "Redirecting…"
+                  : "Select plan",
               props: {
-                variant: "primary",
-                onClick: () => console.log("clicked plan!"),
+                variant: isAnnualActive ? "secondary" : "primary",
+                disabled: isAnnualActive || isSubmitting,
+                onClick: () => selectPlan(ANNUAL_PLAN),
               },
             }}
           />
           <PricingCard
             title="Premium"
-            description="The best of the best, for stores that have the highest update frequency"
-            unfeaturedText="Not Eligible"
+            unfeaturedText="Coming Soon"
+            description="For high-volume stores with the highest update frequency."
             features={[
-              "Process up to 100,000 urls/day",
-              "Ai powered SEO strategy",
-              "Store Media Content Optimization",
-              "Advance Ad and Audience suggestions",
+              "Up to 100,000 URLs per day",
+              "AI-powered SEO strategy",
+              "Media content optimization",
+              "Advanced ad and audience suggestions",
             ]}
             price="$120"
             frequency="month"
             button={{
-              content: "Select Plan",
+              content: "Coming soon",
               props: {
                 variant: "primary",
                 disabled: true,
-                onClick: () => console.log("clicked plan!"),
               },
             }}
           />
+        </s-grid>
+      </s-box>
+
+      {/* FAQs */}
+      <s-divider />
+      <s-box paddingBlockStart="large" paddingBlockEnd="large">
+        <s-stack direction="block" gap="large">
+          <s-stack direction="block" gap="small">
+            <s-heading>Frequently asked questions</s-heading>
+            <s-text color="subdued">
+              Common questions about plans, indexing quotas, and technical setup.
+            </s-text>
+          </s-stack>
+          <Accordion items={faqData} />
         </s-stack>
       </s-box>
-      <br></br>
-      <s-divider color="strong" />
-      <br></br>
-      <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: 0 }}>FAQs</h1>
-      <p>Common questions about plans, indexing quotas, and technical setup.</p>
-      <s-box paddingBlockStart="large">
-        <Accordion items={faqData} />
-      </s-box>
-      <s-box paddingBlockStart="large-500" paddingBlockEnd="large-500" />
-      <s-box paddingBlockStart="large-500" paddingBlockEnd="large-500" />
-      <s-box paddingBlockStart="large-500" paddingBlockEnd="large-500" />
     </s-page>
   );
 }
